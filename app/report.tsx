@@ -1,3 +1,6 @@
+import { createReport } from "../src/api/api";
+
+
 import { useState } from "react";
 import {
   View,
@@ -14,8 +17,11 @@ import { Picker } from "@react-native-picker/picker";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { Video } from "expo-av";
+import { useRouter } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export default function ReportScreen() {
+  const router = useRouter();
   const [hazardType, setHazardType] = useState("");
   const [description, setDescription] = useState("");
   const [images, setImages] = useState<string[]>([]);
@@ -23,19 +29,23 @@ export default function ReportScreen() {
   const [location, setLocation] = useState<any>(null);
   const [address, setAddress] = useState<string>("");
 
+  // Logout handler
+  const handleLogout = async () => {
+    await AsyncStorage.removeItem("isLoggedIn");
+    router.replace({ pathname: "/splashscreen" });
+  };
+
   // Pick image
   const pickImage = async () => {
     if (images.length >= 3) {
       Alert.alert("Limit Reached", "You can add up to 3 images only.");
       return;
     }
-
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== "granted") {
       Alert.alert("Permission Denied", "Camera permission is required.");
       return;
     }
-
     const result = await ImagePicker.launchCameraAsync({ quality: 0.5 });
     if (!result.canceled) {
       setImages([...images, result.assets[0].uri]);
@@ -48,24 +58,21 @@ export default function ReportScreen() {
       Alert.alert("Limit Reached", "You can add only 1 video.");
       return;
     }
-
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== "granted") {
       Alert.alert("Permission Denied", "Camera permission is required.");
       return;
     }
-
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Videos,
       quality: 0.5,
     });
-
     if (!result.canceled) {
       setVideo(result.assets[0].uri);
     }
   };
 
-  // Fetch location on button press
+  // Fetch location
   const getMyLocation = async () => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -82,7 +89,6 @@ export default function ReportScreen() {
       });
       setLocation(loc);
 
-      // Get human-readable address
       const geocode = await Location.reverseGeocodeAsync({
         latitude: loc.coords.latitude,
         longitude: loc.coords.longitude,
@@ -90,6 +96,7 @@ export default function ReportScreen() {
       if (geocode.length > 0) {
         const g = geocode[0];
         const addr = `${g.name || ""}, ${g.city || ""}, ${g.region || ""}, ${g.country || ""}`;
+
         setAddress(addr);
       }
 
@@ -109,36 +116,52 @@ export default function ReportScreen() {
   };
 
   // Submit report
-  const submitReport = () => {
-    if (!hazardType || !description) {
-      Alert.alert("Error", "Please select hazard type and add description.");
-      return;
-    }
+  const submitReport = async () => {
+  if (!hazardType || !description) {
+    Alert.alert("Error", "Please select hazard type and add description.");
+    return;
+  }
 
-    Alert.alert(
-      "Report Submitted",
-      `Hazard: ${hazardType}\nDescription: ${description}\nImages: ${
-        images.length
-      }\nVideo: ${video ? "Yes" : "No"}\nLocation: ${
-        location
-          ? `${location.coords.latitude.toFixed(5)}, ${location.coords.longitude.toFixed(
-              5
-            )}\n${address}`
-          : "N/A"
-      }`
-    );
+  try {
+    const payload = {
+      hazard_type: hazardType,
+      description,
+      latitude: location ? location.coords.latitude : null,
+      longitude: location ? location.coords.longitude : null,
+      address: address || null,
+      images: images, // currently just URIs
+      video: video,   // currently just URI
+    };
 
-    // Reset
+    const response = await createReport(payload);
+
+    Alert.alert("Success", "Report submitted successfully!");
+    console.log("Report response:", response);
+
+
+   // Reset form
     setHazardType("");
     setDescription("");
     setImages([]);
     setVideo(null);
     setLocation(null);
     setAddress("");
-  };
+  } catch (error: any) {
+    console.error("Error submitting report:", error.message);
+    Alert.alert("Error", "Failed to submit report. Please try again.");
+  }
+};
+
+
+
+
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
+      <View style={styles.logoutContainer}>
+        <Button title="Logout" color="#ff4d4d" onPress={handleLogout} />
+      </View>
+
       <Text style={styles.title}>Citizen Report</Text>
 
       <Text style={styles.label}>Select Hazard Type</Text>
@@ -174,7 +197,6 @@ export default function ReportScreen() {
             )}
           </TouchableOpacity>
         ))}
-
         <TouchableOpacity style={styles.square} onPress={pickVideo}>
           {video ? (
             <Video
@@ -210,6 +232,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     flexGrow: 1,
   },
+  logoutContainer: { marginBottom: 10, alignItems: "flex-end" },
   title: {
     fontSize: 22,
     fontWeight: "bold",
